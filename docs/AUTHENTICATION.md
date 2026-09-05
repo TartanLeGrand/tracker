@@ -156,3 +156,8 @@ metadata.
 `tracker_auth_requests_total{principal,result}` counts authorization
 decisions, with `principal` in `anonymous`, `user`, `apikey` and `result`
 in `allowed`, `unauthenticated`, `denied`.
+
+`tracker_auth_logins_total{method,result}` counts login attempts, with
+`method` in `local` (`oidc` once it lands) and `result` in `success`,
+`failure`, `rate_limited`. Malformed bodies, cross-site refusals and internal
+errors are not login attempts and are not counted.

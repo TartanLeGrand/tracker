@@ -23,8 +23,30 @@ var authRequests = prometheus.NewCounterVec(
 	[]string{"principal", "result"},
 )
 
+// AuthLogins counts login attempts. The method label names the authentication
+// method (local for now, oidc once it lands) and the result label is one of
+// LoginSuccess, LoginFailure or LoginRateLimited. Malformed bodies, cross-site
+// refusals and internal errors are not login attempts and are not counted.
+// It is exported so the login handler, which lives in the server package, can
+// increment it and tests can read it back.
+var AuthLogins = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "tracker_auth_logins_total",
+		Help: "Login attempts by authentication method and result",
+	},
+	[]string{"method", "result"},
+)
+
+// Values of the AuthLogins labels.
+const (
+	LoginMethodLocal = "local"
+	LoginSuccess     = "success"
+	LoginFailure     = "failure"
+	LoginRateLimited = "rate_limited"
+)
+
 func init() {
-	prometheus.MustRegister(authRequests)
+	prometheus.MustRegister(authRequests, AuthLogins)
 }
 
 // MethodFromContext returns the full RPC method name, on gRPC or through the

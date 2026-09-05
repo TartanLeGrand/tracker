@@ -8,10 +8,17 @@ import (
 	"testing"
 
 	"github.com/bananaops/tracker/internal/auth"
+	"github.com/bananaops/tracker/internal/auth/authz"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// loginCount reads tracker_auth_logins_total for one result label.
+func loginCount(result string) float64 {
+	return testutil.ToFloat64(authz.AuthLogins.WithLabelValues("local", result))
+}
 
 func newAuthHTTPServer(t *testing.T, f *authFixture) http.Handler {
 	t.Helper()
@@ -45,6 +52,7 @@ func sessionCookie(t *testing.T, rec *httptest.ResponseRecorder) *http.Cookie {
 func TestLoginSuccessSetsCookie(t *testing.T) {
 	f := newAuthFixture(t)
 	h := newAuthHTTPServer(t, f)
+	before := loginCount("success")
 
 	rec := post(h, "/api/v1alpha1/auth/login", `{"username":"Admin","password":"admin-password-123"}`, nil)
 	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
@@ -59,11 +67,13 @@ func TestLoginSuccessSetsCookie(t *testing.T) {
 
 	again, _ := f.users.GetByID(context.Background(), f.admin.ID)
 	assert.NotNil(t, again.LastLoginAt)
+	assert.Equal(t, before+1, loginCount("success"))
 }
 
 func TestLoginFailures(t *testing.T) {
 	f := newAuthFixture(t)
 	h := newAuthHTTPServer(t, f)
+	before := loginCount("failure")
 
 	rec := post(h, "/api/v1alpha1/auth/login", `{"username":"admin","password":"wrong-password-1"}`, nil)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -82,17 +92,23 @@ func TestLoginFailures(t *testing.T) {
 	require.NoError(t, f.users.Update(context.Background(), f.admin))
 	rec = post(h, "/api/v1alpha1/auth/login", `{"username":"admin","password":"admin-password-123"}`, nil)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "disabled user cannot log in")
+
+	// Wrong password, unknown user and disabled user, the two 400 answers are
+	// not login attempts and are not counted.
+	assert.Equal(t, before+3, loginCount("failure"))
 }
 
 func TestLoginRateLimited(t *testing.T) {
 	f := newAuthFixture(t)
 	h := newAuthHTTPServer(t, f)
+	before := loginCount("rate_limited")
 	for i := 0; i < 5; i++ {
 		rec := post(h, "/api/v1alpha1/auth/login", `{"username":"admin","password":"wrong-password-1"}`, nil)
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	}
 	rec := post(h, "/api/v1alpha1/auth/login", `{"username":"admin","password":"admin-password-123"}`, nil)
 	assert.Equal(t, http.StatusTooManyRequests, rec.Code, "even the right password is blocked")
+	assert.Equal(t, before+1, loginCount("rate_limited"))
 }
 
 func TestLogoutClearsCookie(t *testing.T) {

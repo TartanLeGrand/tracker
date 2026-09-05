@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bananaops/tracker/internal/auth"
+	"github.com/bananaops/tracker/internal/auth/authz"
 	store "github.com/bananaops/tracker/internal/stores"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -91,6 +92,7 @@ func (h *AuthHTTP) handleLogin(w http.ResponseWriter, r *http.Request, _ map[str
 	limitKey := strings.ToLower(req.Username) + "|" + ip
 	if h.limiter.Blocked(limitKey) {
 		h.logger.Warn("auth.login", "result", "rate_limited", "username", req.Username, "ip", ip)
+		authz.AuthLogins.WithLabelValues(authz.LoginMethodLocal, authz.LoginRateLimited).Inc()
 		writeJSONError(w, http.StatusTooManyRequests, "too many failed attempts, retry later")
 		return
 	}
@@ -98,6 +100,7 @@ func (h *AuthHTTP) handleLogin(w http.ResponseWriter, r *http.Request, _ map[str
 	fail := func(reason string) {
 		h.limiter.RecordFailure(limitKey)
 		h.logger.Warn("auth.login", "result", "failure", "reason", reason, "username", req.Username, "ip", ip)
+		authz.AuthLogins.WithLabelValues(authz.LoginMethodLocal, authz.LoginFailure).Inc()
 		writeJSONError(w, http.StatusUnauthorized, "invalid credentials")
 	}
 
@@ -133,6 +136,7 @@ func (h *AuthHTTP) handleLogin(w http.ResponseWriter, r *http.Request, _ map[str
 		h.logger.Error("auth.login touch failed", "error", err)
 	}
 	h.logger.Info("auth.login", "result", "success", "username", user.Username, "ip", ip)
+	authz.AuthLogins.WithLabelValues(authz.LoginMethodLocal, authz.LoginSuccess).Inc()
 	w.WriteHeader(http.StatusNoContent)
 }
 
