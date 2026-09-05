@@ -49,6 +49,36 @@ func TestIsCrossSite(t *testing.T) {
 			name: "forwarded proto is ignored without a trusted proxy", origin: "https://example.com",
 			forwarded: "https", host: "example.com", want: true,
 		},
+
+		// An explicit default port means the same origin as no port at all.
+		{
+			name: "explicit 443 in the public url matches a bare origin", origin: "https://tracker.example.com",
+			publicURL: "https://tracker.example.com:443", host: "internal:8080", want: false,
+		},
+		{
+			name: "explicit 443 in the origin matches a bare public url", origin: "https://tracker.example.com:443",
+			publicURL: "https://tracker.example.com", host: "internal:8080", want: false,
+		},
+		{
+			name: "explicit 80 in the origin matches a bare host", origin: "http://example.com:80",
+			host: "example.com", want: false,
+		},
+		{
+			name: "explicit 80 in the host matches a bare origin", origin: "http://example.com",
+			host: "example.com:80", want: false,
+		},
+		{
+			name: "a non default port still has to match", origin: "https://tracker.example.com:8443",
+			publicURL: "https://tracker.example.com", host: "internal:8080", want: true,
+		},
+		{
+			name: "443 on http is not a default port", origin: "http://example.com:443",
+			host: "example.com", want: true,
+		},
+		{
+			name: "a port ending in 80 is not the default port", origin: "http://example.com:8080",
+			host: "example.com", want: true,
+		},
 	}
 
 	for _, tc := range cases {
