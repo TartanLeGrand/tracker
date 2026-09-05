@@ -18,6 +18,11 @@ rights of their teams.
 | `links:write` | Manage custom links |
 | `access:manage` | Manage users, teams and API keys |
 
+`access:manage` is effectively full administrative control, not just user
+management: a caller holding it can add itself to `Administrators` through
+`UpdateUser`, or mint an API key on that team, and reach every permission
+that way. Grant it as you would grant root.
+
 Every gRPC method and REST route maps to exactly one permission. A method
 missing from the mapping is refused. An anonymous caller lacking the
 permission receives `401 Unauthorized` (gRPC `UNAUTHENTICATED`); an
@@ -75,6 +80,12 @@ minute block further attempts for a minute. The client IP is the peer address
 of the connection, unless `AUTH_TRUST_PROXY=true`, in which case it is the last
 entry of `X-Forwarded-For`, the one appended by the reverse proxy. The earlier
 entries are client controlled and must not be trusted.
+
+Logout is stateless: it only clears the cookie, so a session token stolen
+beforehand stays valid until its own expiry (`AUTH_SESSION_TTL`, 12 hours by
+default). Changing the user's password, disabling the user or resetting its
+password bumps the session version and is the only way to revoke a token
+early.
 
 | Endpoint | Description |
 |----------|-------------|
@@ -150,6 +161,13 @@ Authorization: Bearer trk_...
 
 For gRPC, send the same value in the `x-api-key` or `authorization`
 metadata.
+
+An API key that is malformed, unknown, revoked or expired does not produce an
+error: the caller falls back to the anonymous principal. Under the
+transitional default, where the anonymous principal holds every permission but
+`access:manage`, a client whose key was revoked therefore keeps working on
+those routes and never learns that its key is dead. Narrowing
+`AUTH_ANONYMOUS_PERMISSIONS` makes revocation visible as a `401`.
 
 ## Metrics
 
