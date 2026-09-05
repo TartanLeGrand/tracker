@@ -27,12 +27,20 @@ func init() {
 	prometheus.MustRegister(authRequests)
 }
 
-// MethodFromContext returns the full RPC method name, on gRPC or through the gateway.
+// MethodFromContext returns the full RPC method name, on gRPC or through the
+// gateway. runtime.RPCMethod is tried first: the generated *.pb.gw.go code
+// (HandlerServer mode) injects a dummy runtime.ServerTransportStream into the
+// context purely to let grpc.SendHeader/SetTrailer work outside of a real
+// gRPC server, and that stream's Method() always returns "". Since
+// grpc.Method(ctx) reports ok=true as soon as any transport stream is
+// present, checking it first would silently treat every gateway request as
+// having no method, denying it as unauthorized. grpc.Method is used only as
+// a fallback, and only when it actually returns a non-empty name.
 func MethodFromContext(ctx context.Context) string {
-	if m, ok := grpc.Method(ctx); ok {
+	if m, ok := runtime.RPCMethod(ctx); ok {
 		return m
 	}
-	if m, ok := runtime.RPCMethod(ctx); ok {
+	if m, ok := grpc.Method(ctx); ok && m != "" {
 		return m
 	}
 	return ""
