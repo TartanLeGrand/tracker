@@ -70,7 +70,7 @@ BUY_ME_COFFEE_URL=https://www.buymeacoffee.com/yourname
 | `AUTH_COOKIE_SECURE` | `false` | Force the `Secure` flag on cookies. |
 | `AUTH_TRUST_PROXY` | `false` | Use `X-Forwarded-For` as client IP for login rate limiting. |
 
-`DEMO_MODE=true` overrides `AUTH_ANONYMOUS_PERMISSIONS` with the read-only set `event:read,catalog:read,lock:read,links:read`.
+When `AUTH_ANONYMOUS_PERMISSIONS` is set, its value is used as is, even when empty. When it is unset, the default is the read-only set `event:read,catalog:read,lock:read,links:read` if `DEMO_MODE=true`, otherwise every permission except `access:manage` (transitional default, with a startup warning).
 
 See [AUTHENTICATION.md](AUTHENTICATION.md) for permissions, teams and API keys.
 

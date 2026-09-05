@@ -27,17 +27,18 @@ authenticated caller lacking it receives `403 Forbidden`
 ## Anonymous access
 
 `AUTH_ANONYMOUS_PERMISSIONS` lists the permissions granted without
-credentials. During the transition period the default is every permission
-except `access:manage`, so existing installations keep working. The server
-logs a warning at startup when the variable is not set. Set it to an empty
-value to require authentication everywhere:
+credentials. When it is set, its value is used as is, even when empty. When
+it is unset, the default is the read-only set
+`event:read,catalog:read,lock:read,links:read` if `DEMO_MODE=true`, otherwise
+every permission except `access:manage` (transitional default, so existing
+installations keep working; the server logs a warning at startup, and the
+default becomes empty in the next major release).
+
+Set it to an empty value to require authentication everywhere:
 
 ```bash
 AUTH_ANONYMOUS_PERMISSIONS=
 ```
-
-`DEMO_MODE=true` overrides this and grants the read-only set
-`event:read,catalog:read,lock:read,links:read` instead.
 
 ## Initial administrator
 
@@ -106,6 +107,12 @@ belongs to a team and inherits its rights, or is global (every permission)
 when created without a team, which only members of `Administrators` may do.
 A global API key is a full administrator credential.
 
+| Endpoint | Permission |
+|----------|------------|
+| `GET /api/v1alpha1/auth/api-keys` | `access:manage` |
+| `POST /api/v1alpha1/auth/api-keys` | `access:manage` |
+| `DELETE /api/v1alpha1/auth/api-keys/{id}` | `access:manage` |
+
 ```bash
 curl -b jar -X POST http://localhost:8080/api/v1alpha1/auth/api-keys \
   -H 'Content-Type: application/json' \
@@ -122,7 +129,7 @@ Authorization: Bearer trk_...
 ```
 
 For gRPC, send the same value in the `x-api-key` or `authorization`
-metadata. Revoke a key with `DELETE /api/v1alpha1/auth/api-keys/{id}`.
+metadata.
 
 ## Metrics
 
