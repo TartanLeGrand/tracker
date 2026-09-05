@@ -168,6 +168,15 @@ func (e *Event) CreateEvent(
 			EventId:     "", // Sera mis à jour après la création de l'événement
 		}
 
+		// This is an internal call: it reuses the request context, so the
+		// method name authz sees stays "/tracker.event.v1alpha1.EventService/
+		// CreateEvent", not CreateLock. The lock is therefore authorized by
+		// event:write, not lock:write, even though spec 3.1 files CreateLock
+		// under lock:write. That is deliberate: creating an event that locks a
+		// service is one operation from the caller's point of view.
+		// Side effect: tracker_auth_requests_total counts such a request twice
+		// under the same method label, once for CreateEvent and once for the
+		// nested Authorize below. Same for the UpdateLock call further down.
 		_, err := e.lockService.CreateLock(ctx, lockReq)
 		if err != nil {
 			e.logger.Error("failed to create lock",
@@ -205,6 +214,9 @@ func (e *Event) CreateEvent(
 
 		existingLock, err2 := e.lockService.store.Get(ctx, filter)
 		if err2 == nil && existingLock != nil && existingLock.Id != "" {
+			// Internal call on the request context, see the comment above the
+			// CreateLock call: authorized by event:write and counted a second
+			// time in tracker_auth_requests_total under CreateEvent.
 			_, errUpd := e.lockService.UpdateLock(ctx, &lock.UpdateLockRequest{
 				Id:      existingLock.Id,
 				EventId: eventResult.Event.Metadata.Id,
