@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
+	_ "github.com/bananaops/tracker/generated/proto/auth/v1alpha1"
 	_ "github.com/bananaops/tracker/generated/proto/catalog/v1alpha1"
 	_ "github.com/bananaops/tracker/generated/proto/event/v1alpha1"
 	_ "github.com/bananaops/tracker/generated/proto/lock/v1alpha1"
@@ -47,6 +48,14 @@ func TestEveryRPCMethodIsMapped(t *testing.T) {
 	for name := range registered {
 		_, ok := MethodPermissions[name]
 		assert.True(t, ok, "RPC %s has no entry in authz.MethodPermissions", name)
+	}
+}
+
+func TestEveryTableEntryIsARegisteredRPC(t *testing.T) {
+	registered := registeredMethods()
+	for name := range MethodPermissions {
+		_, ok := registered[name]
+		assert.True(t, ok, "authz.MethodPermissions entry %s does not match any RPC (typo?)", name)
 	}
 }
 
