@@ -72,3 +72,59 @@ func TestBootstrapGeneratesPasswordAndIsIdempotent(t *testing.T) {
 	assert.Len(t, users.users, 1)
 	assert.Len(t, teams.teams, 1)
 }
+
+// raceTeams answers ErrNotFound on the first lookup, then loses the creation
+// race and finally sees the team a peer replica created.
+type raceTeams struct {
+	peer     *store.Team
+	lookups  int
+	attempts int
+}
+
+func (m *raceTeams) GetByName(_ context.Context, name string) (*store.Team, error) {
+	m.lookups++
+	if m.lookups == 1 {
+		return nil, store.ErrNotFound
+	}
+	return m.peer, nil
+}
+
+func (m *raceTeams) Create(_ context.Context, _ *store.Team) error {
+	m.attempts++
+	return store.ErrAlreadyExists
+}
+
+func TestBootstrapReusesTeamCreatedByAPeer(t *testing.T) {
+	peer := &store.Team{ID: primitive.NewObjectID(), Name: store.AdministratorsTeamName, Builtin: true}
+	teams := &raceTeams{peer: peer}
+	users := &memUsers{}
+
+	res, err := Bootstrap(context.Background(), users, teams, "initial-admin-password")
+	require.NoError(t, err, "losing the team creation race is not a startup failure")
+	assert.Equal(t, peer.ID, res.AdminsTeamID)
+	assert.Equal(t, 2, teams.lookups, "the team is read back after the unique index fires")
+	assert.True(t, res.AdminCreated)
+	require.Len(t, users.users, 1)
+	assert.Equal(t, []primitive.ObjectID{peer.ID}, users.users[0].Teams)
+}
+
+// racingUsers reports an empty collection but loses the creation race.
+type racingUsers struct{ attempts int }
+
+func (m *racingUsers) Count(context.Context) (int64, error) { return 0, nil }
+func (m *racingUsers) Create(_ context.Context, _ *store.User) error {
+	m.attempts++
+	return store.ErrAlreadyExists
+}
+
+func TestBootstrapToleratesAdminCreatedByAPeer(t *testing.T) {
+	teams := &memTeams{teams: map[string]*store.Team{}}
+	users := &racingUsers{}
+
+	res, err := Bootstrap(context.Background(), users, teams, "")
+	require.NoError(t, err, "a peer replica created the admin, this replica just carries on")
+	assert.False(t, res.AdminCreated, "this replica did not create it")
+	assert.Empty(t, res.GeneratedPassword, "nothing must be logged as a password")
+	assert.Equal(t, teams.teams[store.AdministratorsTeamName].ID, res.AdminsTeamID)
+	assert.Equal(t, 1, users.attempts)
+}

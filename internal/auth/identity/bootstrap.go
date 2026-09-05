@@ -37,6 +37,11 @@ const generatedPasswordLength = 24
 
 // Bootstrap makes sure the Administrators team exists and creates the first
 // admin user when the user collection is empty.
+//
+// It is safe to run on several replicas at once. Both writes are guarded by a
+// unique index, and losing either race is treated as success: the team is read
+// back, and an admin created by a peer means this replica has nothing to
+// report, so AdminCreated is false and no password is returned.
 func Bootstrap(ctx context.Context, users BootstrapUserStore, teams BootstrapTeamStore, adminPassword string) (BootstrapResult, error) {
 	admins, err := teams.GetByName(ctx, store.AdministratorsTeamName)
 	if errors.Is(err, store.ErrNotFound) {
@@ -48,7 +53,14 @@ func Bootstrap(ctx context.Context, users BootstrapUserStore, teams BootstrapTea
 			OIDCGroups:  []string{},
 			Builtin:     true,
 		}
-		if err := teams.Create(ctx, admins); err != nil {
+		if err := teams.Create(ctx, admins); errors.Is(err, store.ErrAlreadyExists) {
+			// Another replica won the race between the lookup and the insert.
+			// The unique index did its job, read back what the peer wrote.
+			admins, err = teams.GetByName(ctx, store.AdministratorsTeamName)
+			if err != nil {
+				return BootstrapResult{}, fmt.Errorf("lookup administrators team created by a peer: %w", err)
+			}
+		} else if err != nil {
 			return BootstrapResult{}, fmt.Errorf("create administrators team: %w", err)
 		}
 	} else if err != nil {
@@ -84,7 +96,13 @@ func Bootstrap(ctx context.Context, users BootstrapUserStore, teams BootstrapTea
 		Teams:              []primitive.ObjectID{admins.ID},
 		MustChangePassword: true,
 	}
-	if err := users.Create(ctx, admin); err != nil {
+	if err := users.Create(ctx, admin); errors.Is(err, store.ErrAlreadyExists) {
+		// A peer replica created the admin between the Count and the insert.
+		// Its password is the one that counts, so drop the one generated here
+		// and report nothing created: the caller must not log a password that
+		// does not open anything.
+		return BootstrapResult{AdminsTeamID: admins.ID}, nil
+	} else if err != nil {
 		return BootstrapResult{}, fmt.Errorf("create admin user: %w", err)
 	}
 	result.AdminCreated = true
