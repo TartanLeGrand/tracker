@@ -20,6 +20,10 @@ const (
 type Credentials struct {
 	APIKey       string
 	SessionToken string
+	// FromCookie is true when the session token came from the browser cookie
+	// rather than an explicit header. Only that source is ambient, so only
+	// that source needs the cross-site guard. See IsCrossSite.
+	FromCookie bool
 }
 
 // Empty reports whether no credential was presented.
@@ -35,7 +39,7 @@ func CredentialsFromHTTP(r *http.Request) Credentials {
 		return c
 	}
 	if ck, err := r.Cookie(SessionCookieName); err == nil && ck.Value != "" {
-		return Credentials{SessionToken: ck.Value}
+		return Credentials{SessionToken: ck.Value, FromCookie: true}
 	}
 	return Credentials{}
 }

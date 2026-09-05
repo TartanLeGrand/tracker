@@ -17,7 +17,7 @@ func newAuthHTTPServer(t *testing.T, f *authFixture) http.Handler {
 	t.Helper()
 	mux := runtime.NewServeMux()
 	NewAuthHTTP(f.users, f.sessions, f.cfg).Register(mux)
-	return auth.HTTPMiddleware(f.resolver)(mux)
+	return auth.HTTPMiddleware(f.resolver, f.cfg)(mux)
 }
 
 func post(h http.Handler, path, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
@@ -133,4 +133,20 @@ func TestChangePassword(t *testing.T) {
 	u, _ := f.users.GetByID(context.Background(), f.admin.ID)
 	assert.False(t, u.MustChangePassword)
 	assert.Equal(t, 2, u.SessionVersion)
+}
+
+func TestLoginRejectsCrossSiteRequest(t *testing.T) {
+	f := newAuthFixture(t)
+	h := newAuthHTTPServer(t, f)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1alpha1/auth/login",
+		strings.NewReader(`{"username":"admin","password":"admin-password-123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Empty(t, rec.Result().Cookies(), "no session is issued to a cross-site caller")
+	assert.Contains(t, rec.Body.String(), "cross-site")
 }

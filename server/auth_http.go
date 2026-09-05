@@ -73,6 +73,15 @@ type loginRequest struct {
 }
 
 func (h *AuthHTTP) handleLogin(w http.ResponseWriter, r *http.Request, _ map[string]string) {
+	// A cross-site form can POST here (the JSON decoder does not require a
+	// preflighted Content-Type), which would let a third party site probe
+	// passwords and plant a session cookie in the victim's browser. Reject
+	// before any password work so the check costs nothing.
+	if auth.IsCrossSite(r, h.cfg.PublicURL, h.cfg.TrustProxy) {
+		h.logger.Warn("auth.login", "result", "cross_site", "origin", r.Header.Get("Origin"))
+		writeJSONError(w, http.StatusForbidden, "cross-site login requests are refused")
+		return
+	}
 	var req loginRequest
 	if err := decodeJSON(r, &req); err != nil || req.Username == "" || req.Password == "" {
 		writeJSONError(w, http.StatusBadRequest, "username and password are required")

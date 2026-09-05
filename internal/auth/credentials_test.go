@@ -27,7 +27,7 @@ func TestCredentialsFromHTTP(t *testing.T) {
 
 	r = httptest.NewRequest(http.MethodGet, "/", nil)
 	r.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "cookie.jwt"})
-	assert.Equal(t, Credentials{SessionToken: "cookie.jwt"}, CredentialsFromHTTP(r))
+	assert.Equal(t, Credentials{SessionToken: "cookie.jwt", FromCookie: true}, CredentialsFromHTTP(r))
 
 	// Header wins over cookie.
 	r.Header.Set("X-Api-Key", "trk_abcdefgh_secret")

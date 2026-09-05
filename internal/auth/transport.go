@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"google.golang.org/grpc"
@@ -22,10 +23,23 @@ func (f ResolverFunc) Resolve(ctx context.Context, creds Credentials) Principal 
 
 // HTTPMiddleware resolves the principal of every HTTP request and stores it in
 // the request context. It never rejects a request: authorization happens later.
-func HTTPMiddleware(r Resolver) func(http.Handler) http.Handler {
+//
+// The configuration is only read for the cross-site guard: a session cookie
+// presented on a cross-site browser request is dropped, so the request
+// resolves to the anonymous principal instead of the logged in user. It fails
+// closed to anonymous rather than to 403 so that a cross-site GET of a public
+// route keeps working.
+func HTTPMiddleware(r Resolver, cfg Config) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			p := r.Resolve(req.Context(), CredentialsFromHTTP(req))
+			creds := CredentialsFromHTTP(req)
+			if creds.FromCookie && IsCrossSite(req, cfg.PublicURL, cfg.TrustProxy) {
+				slog.Debug("auth: ignoring the session cookie of a cross-site request",
+					"method", req.Method, "path", req.URL.Path,
+					"origin", req.Header.Get("Origin"), "sec_fetch_site", req.Header.Get("Sec-Fetch-Site"))
+				creds = Credentials{}
+			}
+			p := r.Resolve(req.Context(), creds)
 			next.ServeHTTP(w, req.WithContext(WithPrincipal(req.Context(), p)))
 		})
 	}

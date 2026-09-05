@@ -84,6 +84,23 @@ entries are client controlled and must not be trusted.
 | `GET /api/v1alpha1/auth/me` | Identity, teams and effective permissions of the caller. Public. |
 | `GET /api/v1alpha1/auth/config` | Login options and anonymous permissions. Public. |
 
+### Browser cross-site requests
+
+`SameSite=Lax` still lets a browser attach the session cookie to a top level
+cross-site `GET` navigation, and the API keeps a write behind a `GET` binding
+(`GET /api/v1alpha1/unlock/{id}`). A request is therefore treated as
+cross-site when `Sec-Fetch-Site` is anything other than `same-origin`,
+`same-site` or `none`, or, when that header is missing, when the `Origin`
+header does not match `AUTH_PUBLIC_URL` (or the request scheme and `Host`
+when `AUTH_PUBLIC_URL` is unset).
+
+On such a request the session cookie is ignored and the caller is anonymous,
+so it gets whatever `AUTH_ANONYMOUS_PERMISSIONS` grants and nothing more.
+`POST /api/v1alpha1/auth/login` goes further and answers `403` before doing
+any password work. API keys and `Authorization: Bearer` tokens are explicit
+credentials, not ambient ones, and are never dropped. Requests carrying
+neither header, which is every non browser client, are unaffected.
+
 ## Teams
 
 A team carries a list of permissions, an optional list of catalog services

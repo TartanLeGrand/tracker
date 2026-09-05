@@ -17,13 +17,16 @@ func fakeResolver() Resolver {
 		if c.APIKey == "trk_abcdefgh_ok" {
 			return Principal{Kind: KindAPIKey, Username: "apikey:abcdefgh", Permissions: NewPermissionSet(PermEventRead)}
 		}
+		if c.SessionToken == "session.ok" {
+			return Principal{Kind: KindUser, Username: "alice", Permissions: NewPermissionSet(PermEventRead)}
+		}
 		return Anonymous(nil)
 	})
 }
 
 func TestHTTPMiddlewareStoresPrincipal(t *testing.T) {
 	var seen Principal
-	h := HTTPMiddleware(fakeResolver())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := HTTPMiddleware(fakeResolver(), Config{})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen, _ = FromContext(r.Context())
 	}))
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -64,4 +67,44 @@ func TestStreamInterceptorStoresPrincipal(t *testing.T) {
 	err := StreamInterceptor(fakeResolver())(nil, fakeStream{ctx: ctx}, &grpc.StreamServerInfo{FullMethod: "/x/Y"}, handler)
 	require.NoError(t, err)
 	assert.Equal(t, KindAPIKey, seen.Kind)
+}
+
+// A session cookie is SameSite=Lax, so a browser still sends it on a top level
+// cross-site GET. The middleware must not turn that into an authenticated call.
+func TestHTTPMiddlewareIgnoresCookieOnCrossSiteRequest(t *testing.T) {
+	var seen Principal
+	cfg := Config{PublicURL: "https://tracker.example.com"}
+	h := HTTPMiddleware(fakeResolver(), cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen, _ = FromContext(r.Context())
+	}))
+
+	withCookie := func(secFetch string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1alpha1/unlock/abc", nil)
+		r.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "session.ok"})
+		if secFetch != "" {
+			r.Header.Set("Sec-Fetch-Site", secFetch)
+		}
+		return r
+	}
+
+	h.ServeHTTP(httptest.NewRecorder(), withCookie("same-origin"))
+	assert.Equal(t, KindUser, seen.Kind, "same-origin cookie request stays authenticated")
+
+	h.ServeHTTP(httptest.NewRecorder(), withCookie("cross-site"))
+	assert.Equal(t, KindAnonymous, seen.Kind, "cross-site cookie request falls back to anonymous")
+	assert.False(t, seen.Has(PermEventRead))
+
+	// An API key is not a browser credential and is never dropped.
+	r := httptest.NewRequest(http.MethodGet, "/api/v1alpha1/unlock/abc", nil)
+	r.Header.Set("X-Api-Key", "trk_abcdefgh_ok")
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
+	h.ServeHTTP(httptest.NewRecorder(), r)
+	assert.Equal(t, KindAPIKey, seen.Kind, "an API key is not subject to the cookie CSRF guard")
+
+	// A bearer session token is explicit, so it is not dropped either.
+	r = httptest.NewRequest(http.MethodGet, "/api/v1alpha1/unlock/abc", nil)
+	r.Header.Set("Authorization", "Bearer session.ok")
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
+	h.ServeHTTP(httptest.NewRecorder(), r)
+	assert.Equal(t, KindUser, seen.Kind, "an explicit bearer token is not subject to the cookie CSRF guard")
 }

@@ -294,7 +294,7 @@ var serv = &cobra.Command{
 		}
 
 		// Resolve the principal of every HTTP request (SPA, API and custom handlers)
-		httpHandler = auth.HTTPMiddleware(resolver)(httpHandler)
+		httpHandler = auth.HTTPMiddleware(resolver, authCfg)(httpHandler)
 
 		httpServer := &http.Server{
 			Addr:              "0.0.0.0:8080",
