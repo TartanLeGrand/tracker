@@ -16,7 +16,7 @@ const (
 
 	authUsersCollection    = "auth_users"
 	authTeamsCollection    = "auth_teams"
-	authAPIKeysCollection  = "auth_api_keys"
+	authAPIKeysCollection  = "auth_api_keys" // #nosec G101 -- collection name, not a credential
 	authSettingsCollection = "auth_settings"
 )
 

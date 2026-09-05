@@ -13,7 +13,7 @@ const (
 	// SessionCookieName carries the session token for the SPA.
 	SessionCookieName = "tracker_session"
 	// APIKeyHeader carries an API key.
-	APIKeyHeader = "X-Api-Key"
+	APIKeyHeader = "X-Api-Key" // #nosec G101 -- header name, not a credential
 )
 
 // Credentials are the raw secrets found on a request, before any lookup.
@@ -78,7 +78,9 @@ func fromBearer(header string) (Credentials, bool) {
 
 // SessionCookie builds the cookie carrying a session token.
 func SessionCookie(token string, expires time.Time, secure bool) *http.Cookie {
-	return &http.Cookie{
+	// Secure follows AUTH_COOKIE_SECURE or an https AUTH_PUBLIC_URL; a plain
+	// http deployment cannot set it or the browser drops the cookie.
+	return &http.Cookie{ // #nosec G124 -- Secure is configuration driven, HttpOnly and SameSite are set
 		Name:     SessionCookieName,
 		Value:    token,
 		Path:     "/",
@@ -92,7 +94,7 @@ func SessionCookie(token string, expires time.Time, secure bool) *http.Cookie {
 
 // ClearSessionCookie builds the cookie that removes the session.
 func ClearSessionCookie(secure bool) *http.Cookie {
-	return &http.Cookie{
+	return &http.Cookie{ // #nosec G124 -- Secure is configuration driven, HttpOnly and SameSite are set
 		Name:     SessionCookieName,
 		Value:    "",
 		Path:     "/",

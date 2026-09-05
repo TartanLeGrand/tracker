@@ -60,13 +60,6 @@ func (l *LoginLimiter) Reset(key string) {
 	delete(l.failures, key)
 }
 
-// size is the number of tracked keys. Test only.
-func (l *LoginLimiter) size() int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return len(l.failures)
-}
-
 // prune drops the failures of one key that left the window, and removes the
 // key entirely when nothing is left. The caller holds the lock.
 func (l *LoginLimiter) prune(key string, now time.Time) {

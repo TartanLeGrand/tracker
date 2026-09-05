@@ -58,3 +58,11 @@ func TestLoginLimiterSweepsExpiredKeys(t *testing.T) {
 	assert.False(t, l.Blocked("someone|203.0.113.9"))
 	assert.Equal(t, 0, l.size())
 }
+
+// size is the number of tracked keys, exposed to the tests only so the
+// production type carries no unused method.
+func (l *LoginLimiter) size() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.failures)
+}
