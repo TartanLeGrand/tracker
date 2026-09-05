@@ -4,6 +4,8 @@ go 1.26.1
 
 require (
 	github.com/go-openapi/runtime v0.29.5
+	github.com/golang-jwt/jwt/v5 v5.3.0
+	golang.org/x/crypto v0.56.0
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
@@ -49,7 +51,6 @@ require (
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 )
 
