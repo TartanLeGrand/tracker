@@ -58,6 +58,29 @@ DEMO_MODE=true
 BUY_ME_COFFEE_URL=https://www.buymeacoffee.com/yourname
 ```
 
+### Authentication
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTH_ANONYMOUS_PERMISSIONS` | all except `access:manage` | Comma separated permissions granted to unauthenticated callers. Set it to an empty value to require authentication everywhere. The default becomes empty in the next major release. |
+| `AUTH_ADMIN_PASSWORD` | generated | Password of the initial `admin` account. Only used when no user exists yet. When unset, a random password is printed once in the logs. |
+| `AUTH_SESSION_SECRET` | persisted in MongoDB | Base64 secret (32 bytes minimum) signing session cookies. Set it explicitly when running several replicas without a shared database secret. |
+| `AUTH_SESSION_TTL` | `12h` | Session lifetime. |
+| `AUTH_PUBLIC_URL` | - | Public URL of the UI. An `https` URL makes cookies `Secure`. |
+| `AUTH_COOKIE_SECURE` | `false` | Force the `Secure` flag on cookies. |
+| `AUTH_TRUST_PROXY` | `false` | Use `X-Forwarded-For` as client IP for login rate limiting. |
+
+`DEMO_MODE=true` overrides `AUTH_ANONYMOUS_PERMISSIONS` with the read-only set `event:read,catalog:read,lock:read,links:read`.
+
+See [AUTHENTICATION.md](AUTHENTICATION.md) for permissions, teams and API keys.
+
+**Example:**
+```bash
+AUTH_ANONYMOUS_PERMISSIONS=event:read,catalog:read
+AUTH_ADMIN_PASSWORD=change-me-at-first-login
+AUTH_PUBLIC_URL=https://tracker.example.com
+```
+
 ### Slack Integration
 
 | Variable | Default | Description |
