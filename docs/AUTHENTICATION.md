@@ -71,7 +71,10 @@ valid for `AUTH_SESSION_TTL` (default 12 hours). The cookie is `Secure` when
 `AUTH_PUBLIC_URL` starts with `https://` or `AUTH_COOKIE_SECURE=true`.
 Changing a password, disabling a user or resetting its password invalidates
 existing sessions. Five failed logins for the same username and IP within a
-minute block further attempts for a minute.
+minute block further attempts for a minute. The client IP is the peer address
+of the connection, unless `AUTH_TRUST_PROXY=true`, in which case it is the last
+entry of `X-Forwarded-For`, the one appended by the reverse proxy. The earlier
+entries are client controlled and must not be trusted.
 
 | Endpoint | Description |
 |----------|-------------|

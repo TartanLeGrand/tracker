@@ -61,6 +61,24 @@ func TestClientIP(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "10.0.0.5:4444"
 	r.Header.Set("X-Forwarded-For", "203.0.113.9, 10.0.0.1")
-	assert.Equal(t, "10.0.0.5", ClientIP(r, false))
-	assert.Equal(t, "203.0.113.9", ClientIP(r, true))
+	assert.Equal(t, "10.0.0.5", ClientIP(r, false), "the header is ignored without a trusted proxy")
+	assert.Equal(t, "10.0.0.1", ClientIP(r, true), "the last entry is the one appended by the trusted proxy")
+
+	// A client that forges the header cannot change its rate limiting key: the
+	// trusted proxy appends the real peer address after whatever was sent.
+	spoofed := httptest.NewRequest(http.MethodGet, "/", nil)
+	spoofed.RemoteAddr = "10.0.0.5:4444"
+	spoofed.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8 , 198.51.100.7")
+	assert.Equal(t, "198.51.100.7", ClientIP(spoofed, true))
+
+	single := httptest.NewRequest(http.MethodGet, "/", nil)
+	single.RemoteAddr = "10.0.0.5:4444"
+	single.Header.Set("X-Forwarded-For", " 198.51.100.7 ")
+	assert.Equal(t, "198.51.100.7", ClientIP(single, true))
+
+	// An empty or blank header falls back to the peer address.
+	blank := httptest.NewRequest(http.MethodGet, "/", nil)
+	blank.RemoteAddr = "10.0.0.5:4444"
+	blank.Header.Set("X-Forwarded-For", " , ")
+	assert.Equal(t, "10.0.0.5", ClientIP(blank, true))
 }

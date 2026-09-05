@@ -102,10 +102,22 @@ func ClearSessionCookie(secure bool) *http.Cookie {
 
 // ClientIP returns the peer address, honouring X-Forwarded-For only when the
 // deployment declares a trusted reverse proxy.
+//
+// The LAST entry of the header is used, not the first. Every mainstream
+// ingress (nginx $proxy_add_x_forwarded_for, Traefik, HAProxy) appends the
+// address it saw to whatever the client sent, so the last entry is the only
+// one the trusted proxy wrote. Reading the first entry would let a client
+// forge X-Forwarded-For and get a fresh rate limiting key on every request,
+// which defeats the per (username, IP) login limit.
 func ClientIP(r *http.Request, trustProxy bool) string {
 	if trustProxy {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			return strings.TrimSpace(strings.Split(xff, ",")[0])
+			parts := strings.Split(xff, ",")
+			for i := len(parts) - 1; i >= 0; i-- {
+				if ip := strings.TrimSpace(parts[i]); ip != "" {
+					return ip
+				}
+			}
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
