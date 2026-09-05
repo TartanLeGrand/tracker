@@ -148,3 +148,37 @@ func TestResolveAPIKey(t *testing.T) {
 	assert.Equal(t, auth.KindAnonymous, r.Resolve(context.Background(), auth.Credentials{APIKey: "trk_zzzzzzzz_nothing"}).Kind)
 	assert.Equal(t, auth.KindAnonymous, r.Resolve(context.Background(), auth.Credentials{APIKey: "trk_bad"}).Kind)
 }
+
+// A key attached to the built-in Administrators team is an administrator
+// credential, as spec 4.1 and the comment on auth.Principal.IsAdmin say. Only
+// the built-in flag grants it, not the permissions the team happens to hold.
+func TestResolveAPIKeyOnAdministratorsTeam(t *testing.T) {
+	r, _, team, keys := newFixture(t)
+	admins := &store.Team{
+		ID:          primitive.NewObjectID(),
+		Name:        store.AdministratorsTeamName,
+		Builtin:     true,
+		Permissions: []string{string(auth.PermAccessManage)},
+		Scope:       store.TeamScope{All: true},
+	}
+	r.Teams.(*fakeTeams).byID[admins.ID] = admins
+
+	adminKey, _ := auth.GenerateAPIKey()
+	keys.byPrefix[adminKey.Prefix] = &store.APIKey{
+		ID: primitive.NewObjectID(), Prefix: adminKey.Prefix, Hash: adminKey.Hash, TeamID: &admins.ID,
+	}
+
+	p := r.Resolve(context.Background(), auth.Credentials{APIKey: adminKey.Secret})
+	require.Equal(t, auth.KindAPIKey, p.Kind)
+	assert.True(t, p.IsAdmin, "a key on the built-in team inherits the admin flag")
+	assert.Equal(t, []string{admins.ID.Hex()}, p.TeamIDs)
+	assert.True(t, p.Has(auth.PermAccessManage))
+	assert.True(t, p.Scope.All)
+
+	// A key on an ordinary team stays a plain credential.
+	teamKey, _ := auth.GenerateAPIKey()
+	keys.byPrefix[teamKey.Prefix] = &store.APIKey{
+		ID: primitive.NewObjectID(), Prefix: teamKey.Prefix, Hash: teamKey.Hash, TeamID: &team.ID,
+	}
+	assert.False(t, r.Resolve(context.Background(), auth.Credentials{APIKey: teamKey.Secret}).IsAdmin)
+}

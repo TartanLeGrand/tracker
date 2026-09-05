@@ -128,13 +128,18 @@ func (r *Resolver) resolveAPIKey(ctx context.Context, secret string) (auth.Princ
 		r.logger().Warn("auth: api key belongs to a deleted team", "prefix", prefix)
 		return auth.Principal{}, false
 	}
-	perms, scope, _ := Effective(teams)
+	// A key attached to the built-in Administrators team inherits its admin
+	// flag, exactly like a user of that team. Spec 4.1 and the comment on
+	// auth.Principal.IsAdmin both say so, and a key holding access:manage is
+	// an administrator credential in practice anyway.
+	perms, scope, admin := Effective(teams)
 	return auth.Principal{
 		Kind:        auth.KindAPIKey,
 		Username:    "apikey:" + prefix,
 		TeamIDs:     []string{key.TeamID.Hex()},
 		Permissions: perms,
 		Scope:       scope,
+		IsAdmin:     admin,
 		KeyPrefix:   prefix,
 	}, true
 }
