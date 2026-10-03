@@ -221,6 +221,27 @@ func requireForbidden(t *testing.T, rec *httptest.ResponseRecorder) {
 	require.NotEmpty(t, body["message"])
 }
 
+// eventCount counts the stored events of a service, bypassing the scope.
+func (h *scopeE2E) eventCount(t *testing.T, service string) int {
+	t.Helper()
+	all, err := h.s.eventStore.List(context.Background(), auth.ScopeAll())
+	require.NoError(t, err)
+	n := 0
+	for _, e := range all {
+		if e.Attributes.Service == service {
+			n++
+		}
+	}
+	return n
+}
+
+func (h *scopeE2E) storedEvent(t *testing.T, id string) *eventv1.Event {
+	t.Helper()
+	e, err := h.s.eventStore.Get(context.Background(), map[string]interface{}{"metadata.id": id})
+	require.NoError(t, err)
+	return e
+}
+
 func (h *scopeE2E) eventExists(t *testing.T, id string) bool {
 	t.Helper()
 	return h.do(http.MethodGet, e2ePrefix+"/event/"+id, "", nil, h.keyGlobal).Code == http.StatusOK
@@ -235,19 +256,20 @@ func TestE2EMeReturnsScope(t *testing.T) {
 	me := bodyJSON(t, rec)
 	require.Equal(t, "user", me["kind"])
 	require.Equal(t, []string{"service-a"}, strs(me["scopeServices"]))
-	require.NotEqual(t, true, me["scopeAll"])
+	require.Equal(t, false, me["scopeAll"])
 
 	rec = h.do(http.MethodGet, e2ePrefix+"/auth/me", "", nil, h.keyA)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	me = bodyJSON(t, rec)
 	require.Equal(t, "apikey", me["kind"])
 	require.Equal(t, []string{"service-a"}, strs(me["scopeServices"]))
-	require.NotEqual(t, true, me["scopeAll"])
+	require.Equal(t, false, me["scopeAll"])
 
 	rec = h.do(http.MethodGet, e2ePrefix+"/auth/me", "", nil, h.keyGlobal)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	me = bodyJSON(t, rec)
 	require.Equal(t, true, me["scopeAll"])
+	require.Empty(t, strs(me["scopeServices"]))
 
 	rec = h.do(http.MethodGet, e2ePrefix+"/auth/me", "", nil, "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -272,9 +294,15 @@ func (h *scopeE2E) scopedChecks(t *testing.T, cookie *http.Cookie, key string) {
 
 	rec := do(http.MethodPost, "/event", e2eEventBody("service-a"))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	before := h.eventCount(t, "service-b")
 	requireForbidden(t, do(http.MethodPost, "/event", e2eEventBody("service-b")))
+	require.Equal(t, before, h.eventCount(t, "service-b"), "denied create stores nothing")
 
+	prev := h.storedEvent(t, h.evA)
 	requireForbidden(t, do(http.MethodPut, "/event", e2eUpdateBody(h.evA, "service-b")))
+	after := h.storedEvent(t, h.evA)
+	require.Equal(t, "service-a", after.Attributes.Service)
+	require.Equal(t, prev.Title, after.Title)
 	requireForbidden(t, do(http.MethodDelete, "/event/"+h.evB, ""))
 	require.True(t, h.eventExists(t, h.evB), "denied delete leaves the event")
 }
@@ -294,6 +322,8 @@ func TestE2EUserScope(t *testing.T) {
 	// Locks.
 	require.Equal(t, []string{"service-a"}, lockServices(t, do(http.MethodGet, "/locks/list", "")))
 	requireForbidden(t, do(http.MethodGet, "/unlock/"+h.lockB, ""))
+	_, err := h.s.lockStore.Get(context.Background(), map[string]interface{}{"id": h.lockB})
+	require.NoError(t, err, "denied unlock keeps the lock")
 	requireForbidden(t, do(http.MethodGet, "/lock/"+h.lockB, ""))
 	require.Equal(t, http.StatusOK, do(http.MethodGet, "/lock/"+h.lockA, "").Code)
 
@@ -301,8 +331,14 @@ func TestE2EUserScope(t *testing.T) {
 	require.Equal(t, []string{"service-a"}, catalogNames(t, do(http.MethodGet, "/catalogs/list", "")))
 	require.Equal(t, http.StatusOK, do(http.MethodGet, "/catalog?name=service-a", "").Code)
 	requireForbidden(t, do(http.MethodGet, "/catalog?name=service-b", ""))
+	prevB, err := h.s.catalogs.store.Get(context.Background(), map[string]interface{}{"name": "service-b"})
+	require.NoError(t, err)
 	requireForbidden(t, do(http.MethodPut, "/catalog", `{"name":"service-b","owner":"o","version":"1"}`))
 	requireForbidden(t, do(http.MethodDelete, "/catalog?name=service-b", ""))
+	gotB, err := h.s.catalogs.store.Get(context.Background(), map[string]interface{}{"name": "service-b"})
+	require.NoError(t, err, "denied delete keeps the entry")
+	require.Equal(t, prevB.Owner, gotB.Owner)
+	require.Equal(t, prevB.Version, gotB.Version)
 
 	// Statistics only count service-a (the created and deleted events balance
 	// out: one remains from the create above, the seeded one was deleted).
