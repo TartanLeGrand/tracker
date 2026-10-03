@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	catalogv1 "github.com/bananaops/tracker/generated/proto/catalog/v1alpha1"
 	eventv1 "github.com/bananaops/tracker/generated/proto/event/v1alpha1"
 	lockv1 "github.com/bananaops/tracker/generated/proto/lock/v1alpha1"
 	"github.com/bananaops/tracker/internal/auth"
+	"github.com/bananaops/tracker/internal/config"
 	store "github.com/bananaops/tracker/internal/stores"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -46,7 +48,7 @@ func scopeDB(t *testing.T) *mongo.Database {
 type scopeServices struct {
 	events     *Event
 	locks      *Lock
-	catalogs   *Catalog // set in Task 5
+	catalogs   *Catalog
 	eventStore *store.EventStoreClient
 	lockStore  *store.LockStoreClient // set in Task 4
 }
@@ -59,7 +61,8 @@ func newScopeServices(t *testing.T, db *mongo.Database) *scopeServices {
 	lockStore := store.NewStoreLockFromCollection(db.Collection("locks"))
 	locks := &Lock{store: *lockStore, eventStore: eventStore, logger: logger}
 	events := &Event{store: eventStore, lockService: locks, logger: logger}
-	return &scopeServices{events: events, locks: locks, eventStore: eventStore, lockStore: lockStore}
+	catalogs := &Catalog{store: store.NewStoreCatalogFromCollection(db.Collection(config.ConfigDatabase.CatalogCollection)), logger: logger}
+	return &scopeServices{events: events, locks: locks, catalogs: catalogs, eventStore: eventStore, lockStore: lockStore}
 }
 
 // scopedPrincipal is a user holding every permission, restricted to services.
@@ -120,4 +123,13 @@ func seedLock(t *testing.T, s *scopeServices, service string) string {
 	})
 	require.NoError(t, err)
 	return l.Id
+}
+
+// seedCatalog upserts a catalog entry directly through the store.
+func seedCatalog(t *testing.T, s *scopeServices, entry *catalogv1.Catalog) {
+	t.Helper()
+	entry.Owner = "seed"
+	entry.Version = "1"
+	_, err := s.catalogs.store.Update(context.Background(), map[string]interface{}{"name": entry.Name}, entry)
+	require.NoError(t, err)
 }

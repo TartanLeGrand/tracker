@@ -4,11 +4,14 @@ import (
 	"context"
 	"testing"
 
+	catalogv1 "github.com/bananaops/tracker/generated/proto/catalog/v1alpha1"
 	eventv1 "github.com/bananaops/tracker/generated/proto/event/v1alpha1"
 	lockv1 "github.com/bananaops/tracker/generated/proto/lock/v1alpha1"
 	"github.com/bananaops/tracker/internal/auth"
+	"github.com/bananaops/tracker/internal/config"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 func insertEvent(t *testing.T, s *EventStoreClient, service, source string) string {
@@ -176,4 +179,42 @@ func TestScopeIndexes(t *testing.T) {
 		}
 	}
 	require.Contains(t, names, "idx_lock_service")
+	require.Contains(t, collectionIndexNames(t, db, config.ConfigDatabase.CatalogCollection), "idx_catalog_name")
+}
+
+func collectionIndexNames(t *testing.T, db *mongo.Database, coll string) []string {
+	t.Helper()
+	ctx := context.Background()
+	cursor, err := db.Collection(coll).Indexes().List(ctx)
+	require.NoError(t, err)
+	var specs []bson.M
+	require.NoError(t, cursor.All(ctx, &specs))
+	names := []string{}
+	for _, sp := range specs {
+		names = append(names, sp["name"].(string))
+	}
+	return names
+}
+
+func TestCatalogStoreListScoped(t *testing.T) {
+	db := testDatabase(t)
+	s := NewStoreCatalogFromCollection(db.Collection(config.ConfigDatabase.CatalogCollection))
+	ctx := context.Background()
+	for _, n := range []string{"svc-a", "svc-b"} {
+		_, err := s.Update(ctx, map[string]interface{}{"name": n}, &catalogv1.Catalog{Name: n, Owner: "o", Version: "1"})
+		require.NoError(t, err)
+	}
+
+	got, err := s.List(ctx, auth.ScopeAll())
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
+	got, err = s.List(ctx, auth.ScopeOf("svc-a"))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "svc-a", got[0].Name)
+
+	got, err = s.List(ctx, auth.ScopeOf())
+	require.NoError(t, err)
+	require.Empty(t, got)
 }
