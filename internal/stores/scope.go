@@ -14,3 +14,15 @@ func ServiceFilter(scope auth.Scope, field string) bson.D {
 	}
 	return bson.D{{Key: field, Value: bson.D{{Key: "$in", Value: scope.ServiceList()}}}}
 }
+
+// scopedFilter combines filter with the service restriction of scope.
+// filter is returned untouched for an unrestricted scope.
+func scopedFilter(filter any, scope auth.Scope, field string) any {
+	if scope.All {
+		return filter
+	}
+	if filter == nil {
+		filter = bson.D{}
+	}
+	return bson.D{{Key: "$and", Value: bson.A{filter, ServiceFilter(scope, field)}}}
+}

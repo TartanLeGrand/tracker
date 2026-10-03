@@ -1,0 +1,111 @@
+package server
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"testing"
+	"time"
+
+	eventv1 "github.com/bananaops/tracker/generated/proto/event/v1alpha1"
+	"github.com/bananaops/tracker/internal/auth"
+	store "github.com/bananaops/tracker/internal/stores"
+	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+// scopeDB connects to MONGO_TEST_URI and returns a throwaway database with
+// all indexes, dropped at the end of the test.
+func scopeDB(t *testing.T) *mongo.Database {
+	t.Helper()
+	uri := os.Getenv("MONGO_TEST_URI")
+	if uri == "" {
+		t.Skip("MONGO_TEST_URI not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	require.NoError(t, err)
+	db := client.Database(fmt.Sprintf("tracker_test_%d", time.Now().UnixNano()))
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = db.Drop(c)
+		_ = client.Disconnect(c)
+	})
+	require.NoError(t, store.EnsureIndexes(ctx, db))
+	return db
+}
+
+type scopeServices struct {
+	events     *Event
+	locks      *Lock
+	catalogs   *Catalog // set in Task 5
+	eventStore *store.EventStoreClient
+	lockStore  *store.LockStoreClient // set in Task 4
+}
+
+// newScopeServices wires the services on db with a silent logger.
+func newScopeServices(t *testing.T, db *mongo.Database) *scopeServices {
+	t.Helper()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	eventStore := store.NewStoreEventFromCollection(db.Collection("events"))
+	locks := &Lock{eventStore: eventStore, logger: logger}
+	events := &Event{store: eventStore, lockService: locks, logger: logger}
+	return &scopeServices{events: events, locks: locks, eventStore: eventStore}
+}
+
+// scopedPrincipal is a user holding every permission, restricted to services.
+// No argument yields an empty restricted scope.
+func scopedPrincipal(services ...string) auth.Principal {
+	return auth.Principal{
+		Kind:        auth.KindUser,
+		UserID:      "000000000000000000000001",
+		Username:    "scoped",
+		Permissions: auth.NewPermissionSet(auth.AllPermissions()...),
+		Scope:       auth.ScopeOf(services...),
+	}
+}
+
+// allScopePrincipal is the same user with an unrestricted scope.
+func allScopePrincipal() auth.Principal {
+	p := scopedPrincipal()
+	p.Scope = auth.ScopeAll()
+	return p
+}
+
+// scopeCtx builds a context as the gRPC server would for fullMethod,
+// for example "/tracker.event.v1alpha1.EventService/GetEvent".
+func scopeCtx(p auth.Principal, fullMethod string) context.Context {
+	ctx := grpc.NewContextWithServerTransportStream(context.Background(), fakeTransportStream{method: fullMethod})
+	return auth.WithPrincipal(ctx, p)
+}
+
+// seedEvent stores an incident of the given service and returns its id.
+func seedEvent(t *testing.T, s *scopeServices, service string) string {
+	t.Helper()
+	d, err := time.Parse("2006-01-02", time.Now().Format("2006-01-02"))
+	require.NoError(t, err)
+	e, err := s.eventStore.Create(context.Background(), &eventv1.Event{
+		Title: "seed " + service,
+		Attributes: &eventv1.EventAttributes{
+			Service:     service,
+			Source:      "scope-test",
+			Type:        eventv1.Type_incident,
+			Status:      eventv1.Status_open,
+			Environment: eventv1.Environment_production,
+			Priority:    eventv1.Priority_P3,
+			Owner:       "seed",
+			StartDate:   timestamppb.New(d.Add(12 * time.Hour)),
+		},
+		Links:    &eventv1.EventLinks{},
+		Metadata: &eventv1.EventMetadata{},
+	})
+	require.NoError(t, err)
+	return e.Metadata.Id
+}

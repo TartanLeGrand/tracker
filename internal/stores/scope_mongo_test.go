@@ -1,0 +1,137 @@
+package store
+
+import (
+	"context"
+	"testing"
+
+	eventv1 "github.com/bananaops/tracker/generated/proto/event/v1alpha1"
+	"github.com/bananaops/tracker/internal/auth"
+	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/bson"
+)
+
+func insertEvent(t *testing.T, s *EventStoreClient, service, source string) string {
+	t.Helper()
+	e, err := s.Create(context.Background(), &eventv1.Event{
+		Title:      service,
+		Attributes: &eventv1.EventAttributes{Service: service, Source: source},
+		Links:      &eventv1.EventLinks{},
+		Metadata:   &eventv1.EventMetadata{},
+	})
+	require.NoError(t, err)
+	return e.Metadata.Id
+}
+
+func seedScopeEvents(t *testing.T) *EventStoreClient {
+	t.Helper()
+	db := testDatabase(t)
+	s := NewStoreEventFromCollection(db.Collection("events"))
+	for _, svc := range []string{"svc-a", "svc-a", "svc-b", ""} {
+		insertEvent(t, s, svc, "scope-test")
+	}
+	return s
+}
+
+func TestEventStoreListScoped(t *testing.T) {
+	s := seedScopeEvents(t)
+	ctx := context.Background()
+
+	got, err := s.List(ctx, auth.ScopeAll())
+	require.NoError(t, err)
+	require.Len(t, got, 4)
+
+	got, err = s.List(ctx, auth.ScopeOf("svc-a"))
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	for _, e := range got {
+		require.Equal(t, "svc-a", e.Attributes.Service)
+	}
+
+	got, err = s.List(ctx, auth.ScopeOf("svc-a", "svc-b"))
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+
+	got, err = s.List(ctx, auth.ScopeOf())
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	got, err = s.List(ctx, auth.Scope{})
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	got, err = s.List(ctx, auth.ScopeOf("SVC-A"))
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestEventStoreSearchScoped(t *testing.T) {
+	s := seedScopeEvents(t)
+	ctx := context.Background()
+	src := map[string]interface{}{"attributes.source": "scope-test"}
+
+	got, err := s.Search(ctx, auth.ScopeAll(), src)
+	require.NoError(t, err)
+	require.Len(t, got, 4)
+
+	got, err = s.Search(ctx, auth.ScopeOf("svc-a"), src)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
+	both := map[string]interface{}{"attributes.source": "scope-test", "attributes.service": "svc-b"}
+	got, err = s.Search(ctx, auth.ScopeOf("svc-a"), both)
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	got, err = s.Search(ctx, auth.ScopeOf("svc-b"), both)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+
+	got, err = s.Search(ctx, auth.ScopeOf("svc-a"), map[string]interface{}{"attributes.service": ""})
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestEventStoreCountScoped(t *testing.T) {
+	s := seedScopeEvents(t)
+	ctx := context.Background()
+	f := bson.D{{Key: "attributes.source", Value: "scope-test"}}
+
+	for scope, want := range map[string]int64{"all": 4, "a": 2, "none": 0} {
+		sc := map[string]auth.Scope{"all": auth.ScopeAll(), "a": auth.ScopeOf("svc-a"), "none": auth.ScopeOf()}[scope]
+		n, err := s.CountWithFilter(ctx, sc, f)
+		require.NoError(t, err, scope)
+		require.Equal(t, want, n, scope)
+	}
+}
+
+func sumCounts(rows []MonthlyStatsResult) int64 {
+	var n int64
+	for _, r := range rows {
+		n += r.Count
+	}
+	return n
+}
+
+func TestEventStoreAggregateScoped(t *testing.T) {
+	s := seedScopeEvents(t)
+	ctx := context.Background()
+	f := bson.D{{Key: "attributes.source", Value: "scope-test"}}
+
+	rows, err := s.AggregateByMonth(ctx, auth.ScopeAll(), f, true)
+	require.NoError(t, err)
+	require.Equal(t, int64(4), sumCounts(rows))
+
+	rows, err = s.AggregateByMonth(ctx, auth.ScopeOf("svc-a"), f, true)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "svc-a", rows[0].Service)
+	require.Equal(t, int64(2), rows[0].Count)
+
+	rows, err = s.AggregateByMonth(ctx, auth.ScopeOf(), f, true)
+	require.NoError(t, err)
+	require.Empty(t, rows)
+
+	rows, err = s.AggregateByMonth(ctx, auth.ScopeOf("svc-b"), f, false)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), sumCounts(rows))
+}
