@@ -10,6 +10,7 @@ import (
 	"time"
 
 	eventv1 "github.com/bananaops/tracker/generated/proto/event/v1alpha1"
+	lockv1 "github.com/bananaops/tracker/generated/proto/lock/v1alpha1"
 	"github.com/bananaops/tracker/internal/auth"
 	store "github.com/bananaops/tracker/internal/stores"
 	"github.com/stretchr/testify/require"
@@ -55,9 +56,10 @@ func newScopeServices(t *testing.T, db *mongo.Database) *scopeServices {
 	t.Helper()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	eventStore := store.NewStoreEventFromCollection(db.Collection("events"))
-	locks := &Lock{eventStore: eventStore, logger: logger}
+	lockStore := store.NewStoreLockFromCollection(db.Collection("locks"))
+	locks := &Lock{store: *lockStore, eventStore: eventStore, logger: logger}
 	events := &Event{store: eventStore, lockService: locks, logger: logger}
-	return &scopeServices{events: events, locks: locks, eventStore: eventStore}
+	return &scopeServices{events: events, locks: locks, eventStore: eventStore, lockStore: lockStore}
 }
 
 // scopedPrincipal is a user holding every permission, restricted to services.
@@ -108,4 +110,14 @@ func seedEvent(t *testing.T, s *scopeServices, service string) string {
 	})
 	require.NoError(t, err)
 	return e.Metadata.Id
+}
+
+// seedLock stores a lock on service and returns its id.
+func seedLock(t *testing.T, s *scopeServices, service string) string {
+	t.Helper()
+	l, err := s.lockStore.Create(context.Background(), &lockv1.Lock{
+		Service: service, Environment: "production", Resource: "deployment", Who: "seed",
+	})
+	require.NoError(t, err)
+	return l.Id
 }

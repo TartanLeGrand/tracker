@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	eventv1 "github.com/bananaops/tracker/generated/proto/event/v1alpha1"
+	lockv1 "github.com/bananaops/tracker/generated/proto/lock/v1alpha1"
 	"github.com/bananaops/tracker/internal/auth"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
@@ -134,4 +135,41 @@ func TestEventStoreAggregateScoped(t *testing.T) {
 	rows, err = s.AggregateByMonth(ctx, auth.ScopeOf("svc-b"), f, false)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), sumCounts(rows))
+}
+
+func TestLockStoreListScoped(t *testing.T) {
+	db := testDatabase(t)
+	s := NewStoreLockFromCollection(db.Collection("locks"))
+	ctx := context.Background()
+	for _, svc := range []string{"svc-a", "svc-b", ""} {
+		_, err := s.Create(ctx, &lockv1.Lock{Service: svc, Environment: "production", Resource: "deployment", Who: "seed"})
+		require.NoError(t, err)
+	}
+
+	got, err := s.List(ctx, auth.ScopeAll())
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+
+	got, err = s.List(ctx, auth.ScopeOf("svc-a"))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "svc-a", got[0].Service)
+
+	got, err = s.List(ctx, auth.ScopeOf())
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestScopeIndexes(t *testing.T) {
+	db := testDatabase(t)
+	ctx := context.Background()
+	cursor, err := db.Collection("locks").Indexes().List(ctx)
+	require.NoError(t, err)
+	var specs []bson.M
+	require.NoError(t, cursor.All(ctx, &specs))
+	names := []string{}
+	for _, sp := range specs {
+		names = append(names, sp["name"].(string))
+	}
+	require.Contains(t, names, "idx_lock_service")
 }

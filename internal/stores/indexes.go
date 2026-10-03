@@ -150,6 +150,11 @@ func ensureLockIndexes(ctx context.Context, db *mongo.Database, logger *slog.Log
 			},
 			Options: options.Index().SetName("idx_lock_env_resource"),
 		},
+		// Index on service for scoped lists
+		{
+			Keys:    bson.D{{Key: "service", Value: 1}},
+			Options: options.Index().SetName("idx_lock_service"),
+		},
 	}
 
 	return createIndexes(ctx, collection, indexes, logger, "locks")
