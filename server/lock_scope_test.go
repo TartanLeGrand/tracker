@@ -149,29 +149,73 @@ func TestUnLockScope(t *testing.T) {
 	require.True(t, x.hasLock(t, map[string]interface{}{"id": x.lb}))
 	_, err = unlock(x.pa, x.le)
 	requireDenied(t, err)
+	require.True(t, x.hasLock(t, map[string]interface{}{"id": x.le}))
 	r, err := unlock(x.pa, x.la)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, r.Count)
+	require.False(t, x.hasLock(t, map[string]interface{}{"id": x.la}))
 	_, err = unlock(x.none, x.lb)
 	requireDenied(t, err)
+	require.True(t, x.hasLock(t, map[string]interface{}{"id": x.lb}))
 	_, err = unlock(x.all, x.lb)
 	require.NoError(t, err)
 }
 
-// A lock of an in-scope service may point to an out-of-scope event only when
-// an unrestricted caller linked it. Releasing it is then allowed and appends
-// the "unlocked" entry to that event: UnLock checks the lock, not the event.
+// UnLock of an in-scope lock stays allowed when the linked event is out of
+// scope, but nothing is written to that event.
 func TestUnLockLinkedOutOfScopeEvent(t *testing.T) {
 	x := newLockScopeEnv(t)
 	_, err := x.s.locks.CreateLock(x.lctx(x.all, "CreateLock"), createLockReq("svc-a", "uat", x.b))
 	require.NoError(t, err)
 	l, err := x.s.lockStore.Get(context.Background(), map[string]interface{}{"service": "svc-a", "environment": "uat"})
 	require.NoError(t, err)
+	locked := countChange(x.stored(t, x.b), eventv1.ChangeType_locked)
 
 	r, err := x.s.locks.UnLock(x.lctx(x.pa, "UnLock"), &lockv1.UnLockRequest{Id: l.Id})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, r.Count)
-	require.Equal(t, 1, countChange(x.stored(t, x.b), eventv1.ChangeType_unlocked))
+	require.False(t, x.hasLock(t, map[string]interface{}{"id": l.Id}))
+	require.Equal(t, 0, countChange(x.stored(t, x.b), eventv1.ChangeType_unlocked))
+	require.Equal(t, locked, countChange(x.stored(t, x.b), eventv1.ChangeType_locked))
+}
+
+func TestUnLockLinkedInScopeEventWritesChangelog(t *testing.T) {
+	x := newLockScopeEnv(t)
+	_, err := x.s.locks.CreateLock(x.lctx(x.pa, "CreateLock"), createLockReq("svc-a", "uat", x.a))
+	require.NoError(t, err)
+	l, err := x.s.lockStore.Get(context.Background(), map[string]interface{}{"service": "svc-a", "environment": "uat"})
+	require.NoError(t, err)
+	_, err = x.s.locks.UnLock(x.lctx(x.pa, "UnLock"), &lockv1.UnLockRequest{Id: l.Id})
+	require.NoError(t, err)
+	require.Equal(t, 1, countChange(x.stored(t, x.a), eventv1.ChangeType_unlocked))
+}
+
+// A principal holding both services moves a lock onto an event of the other
+// service, then a user scoped to the lock service only releases it.
+func TestUnLockNonAdminCrossLink(t *testing.T) {
+	x := newLockScopeEnv(t)
+	// lock on svc-a linked to the svc-b event: allowed for pab (both in scope)
+	_, err := x.s.locks.UpdateLock(x.lctx(x.pab, "UpdateLock"), &lockv1.UpdateLockRequest{Id: x.la, EventId: x.b})
+	require.NoError(t, err)
+
+	_, err = x.s.locks.UnLock(x.lctx(x.pa, "UnLock"), &lockv1.UnLockRequest{Id: x.la})
+	require.NoError(t, err)
+	require.False(t, x.hasLock(t, map[string]interface{}{"id": x.la}))
+	require.Equal(t, 0, countChange(x.stored(t, x.b), eventv1.ChangeType_unlocked))
+}
+
+func TestUpdateLockEmptyServiceAndUnknownEvent(t *testing.T) {
+	x := newLockScopeEnv(t)
+	_, err := x.s.locks.UpdateLock(x.lctx(x.pa, "UpdateLock"), &lockv1.UpdateLockRequest{Id: x.le, Who: "bob", Service: "svc-a"})
+	requireDenied(t, err)
+	l := x.lock(t, x.le)
+	require.Equal(t, "seed", l.Who)
+	require.Empty(t, l.Service)
+
+	unknown := "6f1c1c6e-2f0a-4b57-9d3a-1c2f3a4b5c6d"
+	_, err = x.s.locks.UpdateLock(x.lctx(x.pa, "UpdateLock"), &lockv1.UpdateLockRequest{Id: x.la, EventId: unknown})
+	require.NoError(t, err)
+	require.Equal(t, unknown, x.lock(t, x.la).EventId)
 }
 
 func TestListLocksScope(t *testing.T) {

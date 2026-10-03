@@ -169,7 +169,11 @@ func TestScopeIndexes(t *testing.T) {
 	require.NoError(t, cursor.All(ctx, &specs))
 	names := []string{}
 	for _, sp := range specs {
-		names = append(names, sp["name"].(string))
+		name := sp["name"].(string)
+		names = append(names, name)
+		if name == "idx_lock_service" {
+			require.NotContains(t, sp, "unique")
+		}
 	}
 	require.Contains(t, names, "idx_lock_service")
 }

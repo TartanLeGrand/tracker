@@ -252,7 +252,8 @@ func (e *Lock) UnLock(
 	// Si un event_id est fourni, ajouter une entrée dans le changelog de l'événement
 	if lockResult.Lock.EventId != "" {
 		event, err := e.eventStore.Get(context.Background(), map[string]interface{}{"metadata.id": lockResult.Lock.EventId})
-		if err == nil {
+		// The unlock stays allowed, but nothing is written to an event outside the scope.
+		if err == nil && authz.ScopeFromContext(ctx).Allows(event.GetAttributes().GetService()) {
 			// Ajouter l'entrée "unlocked" dans le changelog
 			entry := &eventv1alpha1.ChangelogEntry{
 				Timestamp:  timestamppb.Now(),
