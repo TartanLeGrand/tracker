@@ -412,8 +412,7 @@ AUTH_OIDC_SCOPES=openid profile email groups
 ## Teams
 
 A team carries a list of permissions, an optional list of catalog services
-(empty means every service; per-service filtering is enforced in a later
-release) and optional OIDC group names (see
+(empty means every service, see [Service scope](#service-scope)) and optional OIDC group names (see
 [Single Sign-On](#single-sign-on-openid-connect)). Users belong
 to any number of teams and get the union of their rights. The built-in
 `Administrators` team cannot be renamed, deleted or stripped of permissions.
@@ -428,6 +427,116 @@ to any number of teams and get the union of their rights. The built-in
 Deleting a team detaches its users and revokes its API keys. The last
 enabled member of `Administrators` cannot be disabled or removed from the
 team, and nobody can disable their own account.
+
+## Service scope
+
+A team has a service scope: either `all` services, or a list of service
+names. The scope restricts WHO sees WHAT; permissions are still required to
+perform an operation.
+
+- A user gets the union of the scopes of their teams, and `all` as soon as
+  one team is `all`. A user without any team sees nothing.
+- A team API key gets the scope of its team. The scope is re-read on every
+  request, so a change applies immediately to sessions and keys alike.
+- A global API key, the anonymous caller and the built-in `Administrators`
+  team are always `all`.
+- Names are compared exactly, case included, with the catalog `name` and with
+  the `service` of events and locks. A service does not need to exist in the
+  catalog when it is added to a scope.
+
+### What is scoped
+
+| Data | Field | Filtered (only objects of the scope are returned) | Checked (`403` outside the scope) |
+|------|-------|---------------------------------------------------|-----------------------------------|
+| Events | `attributes.service` | list, search, today, stats, monthly stats | get, create, update, delete, changelog (read and add), Slack id |
+| Locks | `service` | list | get, create, update, unlock |
+| Catalog | `name` | list, version compliance | get, create or update, delete, versions, dependencies |
+
+### Responses
+
+- A list returns only the objects of the scope. A search or a statistic on a
+  service outside the scope returns an empty result.
+- An operation on a single object outside the scope is refused with
+  `403 Forbidden` (gRPC `PERMISSION_DENIED`), and the error names the service.
+  Existence is not hidden (there is no `404` masking): service names are not
+  treated as secrets.
+- An update checks both the stored and the new service: an object cannot be
+  moved into or out of the scope.
+- An object without a service is only visible and writable with scope `all`.
+  A restricted team without services sees and writes nothing.
+
+### Catalog
+
+An in-scope catalog entry is returned whole, so it also shows the names of its
+dependencies that are outside the scope (names only, nothing else about them).
+Version compliance only lists the projects of the scope and treats a
+deliverable outside the scope as absent. To track a shared deliverable, add it
+to the scope of the team.
+
+### Locks and events
+
+- Creating a deployment event takes the lock of the same service.
+- A lock cannot be linked to an event outside the scope. An unknown `event_id`
+  is accepted.
+- Unlocking an in-scope lock that is linked to an out-of-scope event succeeds
+  but writes nothing to the changelog of that event.
+- Completing an in-scope event releases its lock, even when the service of
+  that lock is outside the scope of the caller.
+
+### Not scoped
+
+Custom links and Homer links (they have no service field), `/config.js`,
+Swagger, and the AuthService (identity administration, guarded by
+`access:manage`).
+
+### Known limits
+
+- On event creation, `related_id` may reference an event outside the scope
+  (only its creation time is used to compute a duration). This reveals that the
+  event exists and when it was created.
+- On locks, an unknown `event_id` and an out-of-scope `event_id` are
+  distinguishable (the second is refused with `403`).
+- The scope selector of the web UI ships in a later release. Until then the
+  team dialog always sends "all services": editing a restricted team from the
+  UI resets its scope to `all`. Manage restricted teams through the API.
+
+### API
+
+`POST /api/v1alpha1/auth/teams` and `PUT /api/v1alpha1/auth/teams/{id}` accept
+`scopeAll` and `scopeServices`.
+
+- No service means every service.
+- `scopeAll: true` together with services is refused with `400`, and so is a
+  list of blank services.
+- Names are trimmed and deduplicated, up to 500 services of 128 characters.
+- The scope of `Administrators` cannot be restricted.
+
+```bash
+curl -b jar -X POST http://localhost:8080/api/v1alpha1/auth/teams \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"payments","permissions":["event:read","event:write","lock:read","lock:write","catalog:read"],"scopeServices":["payments-api","payments-worker"]}'
+```
+
+`GET /api/v1alpha1/auth/me` reports the effective scope of the caller:
+
+```json
+{
+  "authenticated": true,
+  "kind": "user",
+  "username": "alice",
+  "permissions": ["event:read", "event:write"],
+  "scopeAll": false,
+  "scopeServices": ["payments-api", "payments-worker"]
+}
+```
+
+### Upgrading
+
+No action is required: existing teams keep their stored scope, `all` by
+default. A team that was already created with a list of services (the field
+existed but was not enforced) becomes restricted when you upgrade. Before
+upgrading, list them with `GET /api/v1alpha1/auth/teams` and look for the teams
+whose `scopeAll` is false.
 
 ## API keys
 
@@ -475,7 +584,8 @@ the anonymous permissions.
 
 `tracker_auth_requests_total{principal,result}` counts authorization
 decisions, with `principal` in `anonymous`, `user`, `apikey` and `result`
-in `allowed`, `unauthenticated`, `denied`.
+in `allowed`, `unauthenticated`, `denied`, `scope_denied`. A request refused
+for its service scope was first counted `allowed` for its permission.
 
 `tracker_auth_logins_total{method,result}` counts login attempts, with
 `method` in `local`, `oidc` and `result` in `success`, `failure`,
