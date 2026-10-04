@@ -412,9 +412,9 @@ AUTH_OIDC_SCOPES=openid profile email groups
 ## Teams
 
 A team carries a list of permissions, an optional list of catalog services
-(empty means every service, see [Service scope](#service-scope)) and optional OIDC group names (see
-[Single Sign-On](#single-sign-on-openid-connect)). Users belong
-to any number of teams and get the union of their rights. The built-in
+(empty means every service, see [Service scope](#service-scope)) and optional
+OIDC group names (see [Single Sign-On](#single-sign-on-openid-connect)). Users
+belong to any number of teams and get the union of their rights. The built-in
 `Administrators` team cannot be renamed, deleted or stripped of permissions.
 
 | Endpoint | Permission |
@@ -429,6 +429,16 @@ enabled member of `Administrators` cannot be disabled or removed from the
 team, and nobody can disable their own account.
 
 ## Service scope
+
+> **Warning: the scope only isolates teams once anonymous access is
+> restricted.** The anonymous caller always has scope `all`. While
+> `AUTH_ANONYMOUS_PERMISSIONS` keeps its transitional default (every
+> permission except `access:manage`), a restricted user or API key can read
+> and write outside its scope by simply not sending its credential. Set
+> `AUTH_ANONYMOUS_PERMISSIONS=` (empty) to require authentication
+> everywhere, or list read-only permissions if anonymous reads are wanted
+> (anonymous reads then stay unscoped). See
+> [Anonymous access](#anonymous-access).
 
 A team has a service scope: either `all` services, or a list of service
 names. The scope restricts WHO sees WHAT; permissions are still required to
@@ -463,7 +473,8 @@ perform an operation.
 - An update checks both the stored and the new service: an object cannot be
   moved into or out of the scope.
 - An object without a service is only visible and writable with scope `all`.
-  A restricted team without services sees and writes nothing.
+  A user who belongs to no team has an empty scope and sees and writes
+  nothing.
 
 ### Catalog
 
