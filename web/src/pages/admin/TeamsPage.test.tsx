@@ -11,6 +11,8 @@ const teams: Team[] = [
   // 'legacy:custom' is not in the frontend's Permission union: it stands in
   // for a permission the backend knows about that this build does not yet.
   { id: 't-plat', name: 'Platform', description: 'Platform team', permissions: ['event:read', 'event:write', 'legacy:custom'], scopeAll: true, scopeServices: [], oidcGroups: ['platform-eng'], builtin: false },
+  // A team restricted through the API: the dialog has no scope editor yet.
+  { id: 't-pay', name: 'Payments', description: 'Payments team', permissions: ['event:read'], scopeAll: false, scopeServices: ['payments-api', 'ledger'], oidcGroups: [], builtin: false },
 ]
 const users: User[] = [
   { id: 'u-admin', username: 'admin', email: '', displayName: 'admin', source: 'local', teamIds: ['t-admin'], disabled: false, mustChangePassword: false },
@@ -135,5 +137,27 @@ describe('TeamsPage', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Team updated')
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.users })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.apiKeys })
+  })
+
+  it('keeps the scope of a restricted team when editing it', async () => {
+    mocked.updateTeam.mockResolvedValue(teams[2])
+    renderWithProviders(<TeamsPage />, { route: '/admin/teams' })
+    const payRow = (await screen.findByText('Payments')).closest('tr') as HTMLElement
+    const user = userEvent.setup()
+    await user.click(within(payRow).getByRole('button', { name: 'Edit' }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('payments-api, ledger')).toBeInTheDocument()
+    await user.click(within(dialog).getByLabelText('event:write'))
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(mocked.updateTeam).toHaveBeenCalledWith('t-pay', {
+        name: 'Payments',
+        description: 'Payments team',
+        permissions: ['event:read', 'event:write'],
+        scopeAll: false,
+        scopeServices: ['payments-api', 'ledger'],
+        oidcGroups: [],
+      }),
+    )
   })
 })

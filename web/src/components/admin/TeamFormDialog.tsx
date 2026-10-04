@@ -59,7 +59,17 @@ export function TeamFormDialog({ open, team, members, pending, error, onSubmit, 
       setLocalError('Name is required')
       return
     }
-    onSubmit({ name: name.trim(), description: description.trim(), permissions, scopeAll: true, scopeServices: [], oidcGroups })
+    // The dialog has no scope editor yet: an existing team keeps the scope it
+    // has (it may have been restricted through the API), a new team gets all
+    // services.
+    onSubmit({
+      name: name.trim(),
+      description: description.trim(),
+      permissions,
+      scopeAll: team?.scopeAll ?? true,
+      scopeServices: team?.scopeServices ?? [],
+      oidcGroups,
+    })
   }
 
   return (
@@ -99,8 +109,12 @@ export function TeamFormDialog({ open, team, members, pending, error, onSubmit, 
 
           <div className="space-y-1.5">
             <p className="text-sm font-medium text-hud-on-surface-var">Scope</p>
-            <p className="text-sm text-hud-on-surface">All services</p>
-            <p className="text-xs text-hud-on-surface-var">Per-service scope arrives in a later release.</p>
+            <p className="text-sm text-hud-on-surface">
+              {team && !team.scopeAll ? team.scopeServices.join(', ') : 'All services'}
+            </p>
+            <p className="text-xs text-hud-on-surface-var">
+              The scope is managed through the API for now; saving this form keeps it unchanged.
+            </p>
           </div>
 
           <FieldRow id="team-oidc-groups" label="OIDC groups" hint="Identity provider groups mapped to this team at sign-in. Press Enter after each group.">
