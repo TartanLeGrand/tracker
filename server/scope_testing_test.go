@@ -50,7 +50,7 @@ type scopeServices struct {
 	locks      *Lock
 	catalogs   *Catalog
 	eventStore *store.EventStoreClient
-	lockStore  *store.LockStoreClient // set in Task 4
+	lockStore  *store.LockStoreClient
 }
 
 // newScopeServices wires the services on db with a silent logger.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	authv1 "github.com/bananaops/tracker/generated/proto/auth/v1alpha1"
 	"github.com/bananaops/tracker/internal/auth"
@@ -87,7 +88,7 @@ func teamScopeFromRequest(scopeAll bool, services []string) (store.TeamScope, er
 		return store.TeamScope{}, status.Errorf(codes.InvalidArgument, "a team scope holds at most %d services", teamScopeMaxServices)
 	}
 	for _, s := range clean {
-		if len(s) > teamScopeServiceMaxLength {
+		if utf8.RuneCountInString(s) > teamScopeServiceMaxLength {
 			return store.TeamScope{}, status.Errorf(codes.InvalidArgument, "a scope service name is at most %d characters", teamScopeServiceMaxLength)
 		}
 	}

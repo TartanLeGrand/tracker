@@ -45,6 +45,8 @@ func TestTeamScopeValidation(t *testing.T) {
 		{name: "max-services", services: distinctServices(500), wantServices: nil},
 		{name: "name-too-long", services: []string{strings.Repeat("x", 129)}, wantCode: codes.InvalidArgument},
 		{name: "name-max-length", services: []string{strings.Repeat("x", 128)}, wantServices: []string{strings.Repeat("x", 128)}},
+		{name: "multibyte-max-length", services: []string{strings.Repeat("\u00e9", 128)}, wantServices: []string{strings.Repeat("\u00e9", 128)}},
+		{name: "multibyte-too-long", services: []string{strings.Repeat("\u00e9", 129)}, wantCode: codes.InvalidArgument},
 		{name: "case-sensitive", services: []string{"Svc-A", "svc-a"}, wantServices: []string{"Svc-A", "svc-a"}},
 		{name: "unknown-service", services: []string{"does-not-exist-in-catalog"}, wantServices: []string{"does-not-exist-in-catalog"}},
 	}
