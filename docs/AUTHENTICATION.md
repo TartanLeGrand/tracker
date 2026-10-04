@@ -508,8 +508,8 @@ Swagger, and the AuthService (identity administration, guarded by
 - On locks, an unknown `event_id` and an out-of-scope `event_id` are
   distinguishable (the second is refused with `403`).
 - The scope selector of the web UI ships in a later release. Until then the
-  team dialog always sends "all services": editing a restricted team from the
-  UI resets its scope to `all`. Manage restricted teams through the API.
+  team dialog shows the scope read-only and keeps it unchanged when a team is
+  edited: create and change restricted scopes through the API.
 
 ### API
 
