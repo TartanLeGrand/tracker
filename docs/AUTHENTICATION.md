@@ -58,11 +58,14 @@ WARN Initial admin account created with a generated password. Change it at first
 
 The account is flagged `mustChangePassword`, and the server enforces it: until
 the password is changed, the account can only read `/auth/me` and
-`/auth/config`, sign out and change its password. Every other call, gRPC or
-HTTP, answers 403 `password change required` (counted as
-`tracker_auth_requests_total{result="password_change_required"}`). The same
-applies to any local user created or reset by an administrator. API keys are
-never affected. Change the password right away:
+`/auth/config`, sign out and change its password. Every other API call is
+refused: HTTP 403 with `password change required`, or gRPC `PermissionDenied`
+(counted as `tracker_auth_requests_total{result="password_change_required"}`).
+The web assets, `/config.js` and the API docs stay reachable, as they serve no
+data. The same applies to any local user created or reset by an administrator.
+On a reset, the user's existing sessions are signed out (the session version is
+bumped, they answer 401) and the restriction applies from the next login. API
+keys are never affected. Change the password right away:
 
 ```bash
 curl -c jar -X POST http://localhost:8080/api/v1alpha1/auth/login \
@@ -484,7 +487,7 @@ the anonymous permissions.
 
 `tracker_auth_requests_total{principal,result}` counts authorization
 decisions, with `principal` in `anonymous`, `user`, `apikey` and `result`
-in `allowed`, `unauthenticated`, `denied`.
+in `allowed`, `unauthenticated`, `denied`, `password_change_required`.
 
 `tracker_auth_logins_total{method,result}` counts login attempts, with
 `method` in `local`, `oidc` and `result` in `success`, `failure`,

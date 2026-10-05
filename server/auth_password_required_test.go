@@ -13,6 +13,8 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // newPasswordRequiredServer mounts the real auth routes, the real AuthService
@@ -29,7 +31,23 @@ func newPasswordRequiredServer(t *testing.T, f *authFixture) http.Handler {
 	ok := func(w http.ResponseWriter, _ *http.Request, _ map[string]string) { w.WriteHeader(http.StatusOK) }
 	require.NoError(t, mux.HandlePath(http.MethodGet, "/api/links", authz.RequireHTTP(auth.PermLinksRead, ok)))
 	require.NoError(t, mux.HandlePath(http.MethodGet, "/api/probe/events", authz.RequireHTTP(auth.PermEventRead, ok)))
-	return auth.HTTPMiddleware(f.resolver, f.cfg)(mux)
+	return auth.HTTPMiddleware(f.resolver, f.cfg)(recoverAsServerError(mux))
+}
+
+// recoverAsServerError turns a panic into a 500. The Event service has no
+// store, so if the authz rule ever stopped refusing a flagged user the call
+// would reach the nil store and panic, aborting the whole test binary and
+// hiding every test scheduled after it. A 500 makes the assertion fail
+// cleanly instead.
+func recoverAsServerError(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if recover() != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 func get(h http.Handler, path string, cookie *http.Cookie, bearer string) *httptest.ResponseRecorder {
@@ -107,6 +125,8 @@ func TestAPIKeyIgnoresCreatorMustChangePassword(t *testing.T) {
 	require.True(t, flagged.MustChangePassword)
 	_, err := svc.CreateApiKey(rpcCtx(flagged, "CreateApiKey"), &authv1.CreateApiKeyRequest{Name: "denied"})
 	require.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+	assert.Equal(t, "password change required", status.Convert(err).Message())
 
 	// The key exists, created by an admin (here the same one with the flag
 	// lifted on the principal only), while the stored user is still flagged.
